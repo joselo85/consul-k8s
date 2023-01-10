@@ -38,6 +38,21 @@ type initContainerCommandData struct {
 // containerInit returns the init container spec for connect-init that polls for the service and the connect proxy service to be registered
 // so that it can save the proxy service id to the shared volume and boostrap Envoy with the proxy-id.
 func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, mpi multiPortInfo) (corev1.Container, error) {
+	var volumeMountPath, consulAddress, initContainerCommandInterpreter, initContainerCmd string
+
+	if isWindows(pod) {
+		volumeMountPath = "C:\\consul\\connect-inject"
+		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
+		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
+		initContainerCommandInterpreter = "sh"
+		initContainerCmd = initContainerCommandTplWindows
+	} else {
+		volumeMountPath = "/consul/connect-inject"
+		consulAddress = w.ConsulAddress
+		initContainerCommandInterpreter = "/bin/sh"
+		initContainerCmd = initContainerCommandTpl
+	}
+
 	// Check if tproxy is enabled on this pod.
 	tproxyEnabled, err := common.TransparentProxyEnabled(namespace, pod, w.EnableTransparentProxy)
 	if err != nil {
@@ -57,7 +72,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	volMounts := []corev1.VolumeMount{
 		{
 			Name:      volumeName,
-			MountPath: "/consul/connect-inject",
+			MountPath: volumeMountPath,
 		},
 	}
 
@@ -89,7 +104,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	// Render the command
 	var buf bytes.Buffer
 	tpl := template.Must(template.New("root").Parse(strings.TrimSpace(
-		initContainerCommandTpl)))
+		initContainerCmd)))
 	err = tpl.Execute(&buf, &data)
 	if err != nil {
 		return corev1.Container{}, err
@@ -125,7 +140,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 			},
 			{
 				Name:  "CONSUL_ADDRESSES",
-				Value: w.ConsulAddress,
+				Value: consulAddress,
 			},
 			{
 				Name:  "CONSUL_GRPC_PORT",
@@ -146,7 +161,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 		},
 		Resources:    w.InitContainerResources,
 		VolumeMounts: volMounts,
-		Command:      []string{"/bin/sh", "-ec", buf.String()},
+		Command:      []string{initContainerCommandInterpreter, "-ec", buf.String()},
 	}
 
 	if w.TLSEnabled {
@@ -221,7 +236,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	}
 
 	if tproxyEnabled {
-		if !w.EnableCNI {
+		if !w.EnableCNI && !isWindows(pod) {
 			// Set redirect traffic config for the container so that we can apply iptables rules.
 			redirectTrafficConfig, err := w.iptablesConfigJSON(pod, namespace)
 			if err != nil {
@@ -245,7 +260,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 					Add: []corev1.Capability{netAdminCapability},
 				},
 			}
-		} else {
+		} else if w.EnableCNI && !isWindows(pod) {
 			container.SecurityContext = &corev1.SecurityContext{
 				RunAsUser:    pointer.Int64(initContainersUserAndGroupID),
 				RunAsGroup:   pointer.Int64(initContainersUserAndGroupID),
@@ -255,6 +270,14 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 					Drop: []corev1.Capability{"ALL"},
 				},
 			}
+		} else if !w.EnableCNI && isWindows(pod) {
+			// To disable ip tables on Windows, we just need to pass an empty string as a value for this envVar.
+			redirectTrafficConfig := ""
+			container.Env = append(container.Env,
+				corev1.EnvVar{
+					Name:  "CONSUL_REDIRECT_TRAFFIC_CONFIG",
+					Value: redirectTrafficConfig,
+				})
 		}
 	}
 
@@ -301,6 +324,25 @@ consul-k8s-control-plane connect-init -pod-name=${POD_NAME} -pod-namespace=${POD
   {{- if .MultiPort }}
   -multiport=true \
   -proxy-id-file=/consul/connect-inject/proxyid-{{ .ServiceName }} \
+  {{- if not .AuthMethod }}
+  -service-name="{{ .ServiceName }}" \
+  {{- end }}
+  {{- end }}
+`
+
+// initContainerCommandTplWindows is the template for the command executed by
+// the Windows init container.
+const initContainerCommandTplWindows = `
+consul-k8s-control-plane.exe connect-init -pod-name=${POD_NAME} -pod-namespace=${POD_NAMESPACE} \
+  -log-level={{ .LogLevel }} \
+  -log-json={{ .LogJSON }} \
+  {{- if .AuthMethod }}
+  -service-account-name="{{ .ServiceAccountName }}" \
+  -service-name="{{ .ServiceName }}" \
+  {{- end }}
+  {{- if .MultiPort }}
+  -multiport=true \
+  -proxy-id-file=C:\\consul\\connect-inject\\proxyid-{{ .ServiceName }} \
   {{- if not .AuthMethod }}
   -service-name="{{ .ServiceName }}" \
   {{- end }}

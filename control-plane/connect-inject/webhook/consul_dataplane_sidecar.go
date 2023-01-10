@@ -55,9 +55,23 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		},
 		InitialDelaySeconds: 1,
 	}
+
+	// Declare variables to be used in container
+	var dataplaneImage, connectInjectDir string
+
+	// Assign values to the variables depending on the OS
+	if isWindows(pod) {
+		// TODO -> Update webhook struct CONSUL-599
+		dataplaneImage = "windows consul dataplane image"
+		connectInjectDir = "C:\\consul\\connect-inject"
+	} else {
+		dataplaneImage = w.ImageConsulDataplane
+		connectInjectDir = "/consul/connect-inject"
+	}
+
 	container := corev1.Container{
 		Name:      containerName,
-		Image:     w.ImageConsulDataplane,
+		Image:     dataplaneImage,
 		Resources: resources,
 		// We need to set tmp dir to an ephemeral volume that we're mounting so that
 		// consul-dataplane can write files to it. Otherwise, it wouldn't be able to
@@ -65,7 +79,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		Env: []corev1.EnvVar{
 			{
 				Name:  "TMPDIR",
-				Value: "/consul/connect-inject",
+				Value: connectInjectDir,
 			},
 			{
 				Name: "NODE_NAME",
@@ -83,7 +97,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      volumeName,
-				MountPath: "/consul/connect-inject",
+				MountPath: connectInjectDir,
 			},
 		},
 		Args:           args,
@@ -129,11 +143,14 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 				return corev1.Container{}, fmt.Errorf("container %q has runAsUser set to the same UID \"%d\" as consul-dataplane which is not allowed", c.Name, sidecarUserAndGroupID)
 			}
 		}
-		container.SecurityContext = &corev1.SecurityContext{
-			RunAsUser:              pointer.Int64(sidecarUserAndGroupID),
-			RunAsGroup:             pointer.Int64(sidecarUserAndGroupID),
-			RunAsNonRoot:           pointer.Bool(true),
-			ReadOnlyRootFilesystem: pointer.Bool(true),
+		// Security Context should not be set when using Windows.
+		if !isWindows(pod) {
+			container.SecurityContext = &corev1.SecurityContext{
+				RunAsUser:              pointer.Int64(sidecarUserAndGroupID),
+				RunAsGroup:             pointer.Int64(sidecarUserAndGroupID),
+				RunAsNonRoot:           pointer.Bool(true),
+				ReadOnlyRootFilesystem: pointer.Bool(true),
+			}
 		}
 	}
 
@@ -141,9 +158,22 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 }
 
 func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi multiPortInfo, bearerTokenFile string, pod corev1.Pod) ([]string, error) {
-	proxyIDFileName := "/consul/connect-inject/proxyid"
+	var proxyIDFileName, consulAddress string
+	if isWindows(pod) {
+		proxyIDFileName = "C:\\consul\\connect-inject\\proxyid"
+		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
+		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
+	} else {
+		proxyIDFileName = "/consul/connect-inject/proxyid"
+		consulAddress = w.ConsulAddress
+	}
+
 	if mpi.serviceName != "" {
-		proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)
+		if isWindows(pod) {
+			proxyIDFileName = fmt.Sprintf("C:\\consul\\connect-inject\\proxyid-%s", mpi.serviceName)
+		} else {
+			proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)
+		}
 	}
 
 	envoyConcurrency := w.DefaultEnvoyProxyConcurrency
@@ -158,7 +188,7 @@ func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi mu
 	}
 
 	args := []string{
-		"-addresses", w.ConsulAddress,
+		"-addresses", consulAddress,
 		"-grpc-port=" + strconv.Itoa(w.ConsulConfig.GRPCPort),
 		"-proxy-service-id-path=" + proxyIDFileName,
 		"-log-level=" + w.LogLevel,
