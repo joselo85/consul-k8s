@@ -56,13 +56,13 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		InitialDelaySeconds: 1,
 	}
 	// Get pod OS, declared in deployment's Node Selector.
-	podOS := pod.Spec.NodeSelector["kubernetes.io/os"]
+	podOS, _ := supportedOS(pod)
 
 	// Declare variables to be used in container
 	var dataplaneImage, tempDirValue, volumeMountPath string
 
 	// Assign values to the variables depending on the OS
-	if podOS != "linux" {
+	if podOS == "windows" {
 		dataplaneImage = "windows consul dataplane image"
 		tempDirValue = "C:\\consul\\connect-inject"
 		volumeMountPath = "C:\\consul\\connect-inject"
@@ -162,9 +162,9 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 
 func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi multiPortInfo, bearerTokenFile string, pod corev1.Pod) ([]string, error) {
 	// Get pod OS, declared in deployment's Node Selector.
-	podOS := pod.Spec.NodeSelector["kubernetes.io/os"]
+	podOS, _ := supportedOS(pod)
 	var proxyIDFileName, consulAddress string
-	if podOS != "linux" {
+	if podOS == "windows" {
 		proxyIDFileName = "C:\\consul\\connect-inject\\proxyid"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
 		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
@@ -174,7 +174,7 @@ func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi mu
 	}
 
 	if mpi.serviceName != "" && podOS == "linux" {
-		if podOS != "linux" {
+		if podOS == "windows" {
 			proxyIDFileName = fmt.Sprintf("C:\\consul\\connect-inject\\proxyid-%s", mpi.serviceName)
 		} else {
 			proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)

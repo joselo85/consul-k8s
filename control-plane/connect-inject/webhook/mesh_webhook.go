@@ -209,6 +209,20 @@ type multiPortInfo struct {
 	serviceName  string
 }
 
+func supportedOS(pod corev1.Pod) (string, error) {
+	switch podOS := pod.Spec.NodeSelector["kubernetes.io/os"]; podOS {
+	case "linux":
+		return podOS, nil
+	case "":
+		podOS = "linux"
+		return podOS, nil
+	case "windows":
+		return podOS, nil
+	default:
+		return podOS, errors.New("unsupported podOS")
+	}
+}
+
 // Handle is the admission.Webhook implementation that actually handles the
 // webhook request for admission control. This should be registered or
 // served via the controller runtime manager.
@@ -243,6 +257,12 @@ func (w *MeshWebhook) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("error checking if should inject: %s", err))
 	} else if !shouldInject {
 		return admission.Allowed(fmt.Sprintf("%s %s does not require injection", pod.Kind, pod.Name))
+	}
+
+	// Check if pod's OS is supported. If it is not supported return admission error.
+	if podOS, err := supportedOS(pod); err != nil {
+		w.Log.Error(err, "", "podOS", podOS)
+		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("error pod OS not supported: %s", err))
 	}
 
 	w.Log.Info("received pod", "name", req.Name, "ns", req.Namespace)
