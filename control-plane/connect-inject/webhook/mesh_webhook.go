@@ -209,6 +209,12 @@ type multiPortInfo struct {
 	serviceName  string
 }
 
+func isWindows(pod corev1.Pod) bool {
+	podOS := pod.Spec.NodeSelector["kubernetes.io/os"]
+
+	return podOS == "windows"
+}
+
 // Handle is the admission.Webhook implementation that actually handles the
 // webhook request for admission control. This should be registered or
 // served via the controller runtime manager.
