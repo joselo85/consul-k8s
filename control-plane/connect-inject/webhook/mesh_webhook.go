@@ -213,6 +213,9 @@ func supportedOS(pod corev1.Pod) (string, error) {
 	switch podOS := pod.Spec.NodeSelector["kubernetes.io/os"]; podOS {
 	case "linux":
 		return podOS, nil
+	// In case the nodeSelector field is not used or the key doesn't exist (such is the case of linux only clusters)
+	// Accessing the map will return the zero value for that type.
+	// Read more: https://go.dev/doc/effective_go#maps
 	case "":
 		podOS = "linux"
 		return podOS, nil

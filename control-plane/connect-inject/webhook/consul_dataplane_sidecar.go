@@ -59,17 +59,15 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 	podOS, _ := supportedOS(pod)
 
 	// Declare variables to be used in container
-	var dataplaneImage, tempDirValue, volumeMountPath string
+	var dataplaneImage, connectInjectDir string
 
 	// Assign values to the variables depending on the OS
 	if podOS == "windows" {
 		dataplaneImage = "windows consul dataplane image"
-		tempDirValue = "C:\\consul\\connect-inject"
-		volumeMountPath = "C:\\consul\\connect-inject"
+		connectInjectDir = "C:\\consul\\connect-inject"
 	} else {
 		dataplaneImage = w.ImageConsulDataplane
-		tempDirValue = "/consul/connect-inject"
-		volumeMountPath = "/consul/connect-inject"
+		connectInjectDir = "/consul/connect-inject"
 	}
 
 	container := corev1.Container{
@@ -82,7 +80,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		Env: []corev1.EnvVar{
 			{
 				Name:  "TMPDIR",
-				Value: tempDirValue,
+				Value: connectInjectDir,
 			},
 			{
 				Name: "NODE_NAME",
@@ -100,7 +98,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      volumeName,
-				MountPath: volumeMountPath,
+				MountPath: connectInjectDir,
 			},
 		},
 		Args:           args,
