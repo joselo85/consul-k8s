@@ -209,21 +209,10 @@ type multiPortInfo struct {
 	serviceName  string
 }
 
-func supportedOS(pod corev1.Pod) (string, error) {
-	switch podOS := pod.Spec.NodeSelector["kubernetes.io/os"]; podOS {
-	case "linux":
-		return podOS, nil
-	// In case the nodeSelector field is not used or the key doesn't exist (such is the case of linux only clusters)
-	// Accessing the map will return the zero value for that type.
-	// Read more: https://go.dev/doc/effective_go#maps
-	case "":
-		podOS = "linux"
-		return podOS, nil
-	case "windows":
-		return podOS, nil
-	default:
-		return podOS, errors.New("unsupported podOS")
-	}
+func isWindows(pod corev1.Pod) bool {
+	podOS := pod.Spec.NodeSelector["kubernetes.io/os"]
+
+	return podOS == "windows"
 }
 
 // Handle is the admission.Webhook implementation that actually handles the
@@ -260,12 +249,6 @@ func (w *MeshWebhook) Handle(ctx context.Context, req admission.Request) admissi
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("error checking if should inject: %s", err))
 	} else if !shouldInject {
 		return admission.Allowed(fmt.Sprintf("%s %s does not require injection", pod.Kind, pod.Name))
-	}
-
-	// Check if pod's OS is supported. If it is not supported return admission error.
-	if podOS, err := supportedOS(pod); err != nil {
-		w.Log.Error(err, "", "podOS", podOS)
-		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("error pod OS not supported: %s", err))
 	}
 
 	w.Log.Info("received pod", "name", req.Name, "ns", req.Namespace)

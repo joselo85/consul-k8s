@@ -55,14 +55,12 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		},
 		InitialDelaySeconds: 1,
 	}
-	// Get pod OS, declared in deployment's Node Selector.
-	podOS, _ := supportedOS(pod)
 
 	// Declare variables to be used in container
 	var dataplaneImage, connectInjectDir string
 
 	// Assign values to the variables depending on the OS
-	if podOS == "windows" {
+	if isWindows(pod) {
 		dataplaneImage = "windows consul dataplane image"
 		connectInjectDir = "C:\\consul\\connect-inject"
 	} else {
@@ -145,7 +143,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 			}
 		}
 		// Security Context should not be set when using Windows.
-		if podOS == "linux" {
+		if !isWindows(pod) {
 			container.SecurityContext = &corev1.SecurityContext{
 				RunAsUser:              pointer.Int64(sidecarUserAndGroupID),
 				RunAsGroup:             pointer.Int64(sidecarUserAndGroupID),
@@ -159,10 +157,8 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 }
 
 func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi multiPortInfo, bearerTokenFile string, pod corev1.Pod) ([]string, error) {
-	// Get pod OS, declared in deployment's Node Selector.
-	podOS, _ := supportedOS(pod)
 	var proxyIDFileName, consulAddress string
-	if podOS == "windows" {
+	if isWindows(pod) {
 		proxyIDFileName = "C:\\consul\\connect-inject\\proxyid"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
 		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
@@ -171,8 +167,8 @@ func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi mu
 		consulAddress = w.ConsulAddress
 	}
 
-	if mpi.serviceName != "" && podOS == "linux" {
-		if podOS == "windows" {
+	if mpi.serviceName != "" {
+		if isWindows(pod) {
 			proxyIDFileName = fmt.Sprintf("C:\\consul\\connect-inject\\proxyid-%s", mpi.serviceName)
 		} else {
 			proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)
