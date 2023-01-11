@@ -38,17 +38,20 @@ type initContainerCommandData struct {
 // containerInit returns the init container spec for connect-init that polls for the service and the connect proxy service to be registered
 // so that it can save the proxy service id to the shared volume and boostrap Envoy with the proxy-id.
 func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, mpi multiPortInfo) (corev1.Container, error) {
-	var volumeMountPath, consulAddress, initContainerCommandInterpreter, initContainerCmd string
+	var volumeMountPath, consulAddress, imageConsulK8s, initContainerCommandInterpreter, initContainerCmd string
 
 	if isWindows(pod) {
 		volumeMountPath = "C:\\consul\\connect-inject"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
 		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
+		// TODO
+		imageConsulK8s = "windows consul k8s control plane image"
 		initContainerCommandInterpreter = "sh"
 		initContainerCmd = initContainerCommandTplWindows
 	} else {
 		volumeMountPath = "/consul/connect-inject"
 		consulAddress = w.ConsulAddress
+		imageConsulK8s = w.ImageConsulK8S
 		initContainerCommandInterpreter = "/bin/sh"
 		initContainerCmd = initContainerCommandTpl
 	}
@@ -116,7 +119,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	}
 	container := corev1.Container{
 		Name:  initContainerName,
-		Image: w.ImageConsulK8S,
+		Image: imageConsulK8s,
 		Env: []corev1.EnvVar{
 			{
 				Name: "POD_NAME",
