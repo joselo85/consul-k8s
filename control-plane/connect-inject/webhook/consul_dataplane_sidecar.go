@@ -61,6 +61,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 
 	// Assign values to the variables depending on the OS
 	if isWindows(pod) {
+		// TODO -> Update webhook struct CONSUL-599
 		dataplaneImage = "windows consul dataplane image"
 		connectInjectDir = "C:\\consul\\connect-inject"
 	} else {
@@ -158,7 +159,6 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 
 func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi multiPortInfo, bearerTokenFile string, pod corev1.Pod) ([]string, error) {
 	var proxyIDFileName, consulAddress string
-
 	if isWindows(pod) {
 		proxyIDFileName = "C:\\consul\\connect-inject\\proxyid"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
