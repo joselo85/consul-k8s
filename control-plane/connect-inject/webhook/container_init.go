@@ -38,22 +38,22 @@ type initContainerCommandData struct {
 // containerInit returns the init container spec for connect-init that polls for the service and the connect proxy service to be registered
 // so that it can save the proxy service id to the shared volume and boostrap Envoy with the proxy-id.
 func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, mpi multiPortInfo) (corev1.Container, error) {
-	var volumeMountPath, consulAddress, imageConsulK8s, initContainerCommandInterpreter, initContainerCmd string
+	var connectInjectDir, consulAddress, imageConsulK8s, initContainerCommandInterpreter, initContainerCommandTpl string
 
 	if isWindows(pod) {
-		volumeMountPath = "C:\\consul\\connect-inject"
+		connectInjectDir = "C:\\consul\\connect-inject"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
 		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
-		// TODO
+		// TODO -> Update webhook struct CONSUL-599
 		imageConsulK8s = "windows consul k8s control plane image"
 		initContainerCommandInterpreter = "sh"
-		initContainerCmd = initContainerCommandTplWindows
+		initContainerCommandTpl = initContainerCommandTplWindows
 	} else {
-		volumeMountPath = "/consul/connect-inject"
+		connectInjectDir = "/consul/connect-inject"
 		consulAddress = w.ConsulAddress
 		imageConsulK8s = w.ImageConsulK8S
 		initContainerCommandInterpreter = "/bin/sh"
-		initContainerCmd = initContainerCommandTpl
+		initContainerCommandTpl = initContainerCommandTplLinux
 	}
 
 	// Check if tproxy is enabled on this pod.
@@ -75,7 +75,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	volMounts := []corev1.VolumeMount{
 		{
 			Name:      volumeName,
-			MountPath: volumeMountPath,
+			MountPath: connectInjectDir,
 		},
 	}
 
@@ -107,7 +107,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 	// Render the command
 	var buf bytes.Buffer
 	tpl := template.Must(template.New("root").Parse(strings.TrimSpace(
-		initContainerCmd)))
+		initContainerCommandTpl)))
 	err = tpl.Execute(&buf, &data)
 	if err != nil {
 		return corev1.Container{}, err
@@ -316,7 +316,7 @@ func splitCommaSeparatedItemsFromAnnotation(annotation string, pod corev1.Pod) [
 
 // initContainerCommandTpl is the template for the command executed by
 // the init container.
-const initContainerCommandTpl = `
+const initContainerCommandTplLinux = `
 consul-k8s-control-plane connect-init -pod-name=${POD_NAME} -pod-namespace=${POD_NAMESPACE} \
   -log-level={{ .LogLevel }} \
   -log-json={{ .LogJSON }} \
