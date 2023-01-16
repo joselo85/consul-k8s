@@ -61,7 +61,6 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 
 	// Assign values to the variables depending on the OS
 	if isWindows(pod) {
-		// TODO -> Update webhook struct CONSUL-599
 		dataplaneImage = w.ImageConsulDataplaneWindows
 		connectInjectDir = "C:\\consul\\connect-inject"
 	} else {
