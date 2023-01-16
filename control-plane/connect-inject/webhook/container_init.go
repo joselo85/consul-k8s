@@ -44,8 +44,7 @@ func (w *MeshWebhook) containerInit(namespace corev1.Namespace, pod corev1.Pod, 
 		connectInjectDir = "C:\\consul\\connect-inject"
 		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
 		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
-		// TODO -> Update webhook struct CONSUL-599
-		imageConsulK8s = "windows consul k8s control plane image"
+		imageConsulK8s = w.ImageConsulK8SWindows
 		initContainerCommandInterpreter = "sh"
 		initContainerCommandTpl = initContainerCommandTplWindows
 	} else {
