@@ -545,7 +545,7 @@ global:
   # connect-injected sidecar proxies and mesh, terminating, and ingress gateways.
   # @default: hashicorp/consul-dataplane:<latest supported version>
   imageConsulDataplane: "hashicorp/consul-dataplane:1.0.0"
-  imageConsulDataplaneWindows: "hashicorp/consul-dataplane-windows:v1.0.0"
+  imageConsulDataplaneWindows: "hashicorp/consul-dataplane-windows:1.0.0"
 
   # Configuration for running this Helm chart on the Red Hat OpenShift platform.
   # This Helm chart currently supports OpenShift v4.x+.
