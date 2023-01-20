@@ -9,6 +9,8 @@
 - [Consul Helm Chart Changes](#consul-helm-chart-changes)
   - [Changes in values.yaml](#changes-in-valuesyaml)
   - [Changes in connect-injector-deployment.yaml Template](#changes-in-connect-injector-deploymentyaml-template)
+- [How to Use this Chart](#how-to-use-this-chart)
+  - [Using Custom Consul Windows Images](#using-custom-consul-windows-images)
 
 ## About
 
@@ -84,3 +86,72 @@ In order to pass the Windows image values set on the Helm chart to the connect-i
 
 > **Warning**
 > It is essential for these changes to work, to have Windows images available for: Consul, consul-k8s-control-plane, consul-dataplane. You can read more about this [here](https://github.com/hashicorp-education/learn-consul-k8s-windows/tree/main/k8s-v1.0.x/dockerfiles).
+
+## How to Use this Chart
+
+Using this chart is fairly simple, you can first package the chart using Helm:  
+`helm package charts/consul`  
+This command will create **consul-1.1.0-dev.tgz**, use this file to install the helm chart.
+
+### Using Custom Consul Windows Images
+
+In case you need to use your own Windows Consul images, you can override the default image values.  
+Take the following values.yaml as an example:
+
+```yml
+# Contains values that affect multiple components of the chart.
+global: 
+  imageK8S:  # Build the binary in this repo and upload to a repository.
+  imageK8SWindows: # Read here: to know how to build your Windows images: https://github.com/hashicorp-education/learn-consul-k8s-windows/tree/main/k8s-v1.0.x/dockerfiles
+  imageConsulDataplaneWindows: # Read here: to know how to build your Windows images: https://github.com/hashicorp-education/learn-consul-k8s-windows/tree/main/k8s-v1.0.x/dockerfiles
+  # The main enabled/disabled setting.
+  # If true, servers, clients, Consul DNS and the Consul UI will be enabled.
+  enabled: true
+  # The prefix used for all resources created in the Helm chart.
+  name: consul
+  # The name of the datacenter that the agents should register as.
+  datacenter: dc1
+  # Enables TLS across the cluster to verify authenticity of the Consul servers and clients.
+  tls:
+    enabled: false
+  # Enables ACLs across the cluster to secure access to data and APIs.
+  acls:
+    # If true, automatically manage ACL tokens and policies for all Consul components.
+    manageSystemACLs: false
+# Configures values that configure the Consul server cluster.
+server:
+  enabled: true
+  # The number of server agents to run. This determines the fault tolerance of the cluster.
+  replicas: 1
+  # When running mixed clusters, nodeSelector MUST be specified.
+  nodeSelector: |
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+# Contains values that configure the Consul UI.
+ui:
+  enabled: true
+  # Registers a Kubernetes Service for the Consul UI as a NodePort.
+  service:
+    type: NodePort
+# Configures and installs the automatic Consul Connect sidecar injector.
+connectInject:
+  enabled: true
+  transparentProxy:
+    defaultEnabled: false
+  # When running mixed clusters, nodeSelector MUST be specified  
+  nodeSelector: |
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+
+webhookCertManager:
+  # When running mixed clusters, nodeSelector MUST be specified
+  nodeSelector: |
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+```
+
+To use a custom values YAML file use the following command:
+`helm install consul <path to chart tgz file>/consul-1.1.0-dev.tgz --values <path to custom values file>/values.yaml`
+
+> **Note**
+> To learn how to deploy an EKS cluster and enabling Windows nodes in EKS you can follow [this guide](https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsLearningGuide.md)
