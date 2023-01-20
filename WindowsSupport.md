@@ -67,7 +67,7 @@ The new flags that enable setting this values are:
 - consul-dataplane-image-windows
 - consul-k8s-image-windows
 
-> **Warning**
+> **Warning**  
 > These flags require a default value, just like their Linux counterpart do, otherwise the `validateFlags()` function (line 750 in [command.go](./control-plane/subcommand/inject-connect/command.go)) will throw an error.  
 
 ## Consul Helm Chart Changes
@@ -84,7 +84,7 @@ New fields were added as part of the **global** stanza:
 
 In order to pass the Windows image values set on the Helm chart to the connect-injector command flags, we modified the [connect-inject-deployment.yaml](./charts/consul/templates/connect-inject-deployment.yaml) template. We added the newly created config flags and used Helm's templating language to insert the required values.
 
-> **Warning**
+> **Warning**  
 > It is essential for these changes to work, to have Windows images available for: Consul, consul-k8s-control-plane, consul-dataplane. You can read more about this [here](https://github.com/hashicorp-education/learn-consul-k8s-windows/tree/main/k8s-v1.0.x/dockerfiles).
 
 ## How to Use this Chart
@@ -153,5 +153,5 @@ webhookCertManager:
 To use a custom values YAML file use the following command:
 `helm install consul <path to chart tgz file>/consul-1.1.0-dev.tgz --values <path to custom values file>/values.yaml`
 
-> **Note**
+> **Note**  
 > To learn how to deploy an EKS cluster and enabling Windows nodes in EKS you can follow [this guide](https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsLearningGuide.md)
