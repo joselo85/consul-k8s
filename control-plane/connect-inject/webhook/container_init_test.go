@@ -38,6 +38,9 @@ func TestHandlerContainerInit(t *testing.T) {
 						Name: "web-side",
 					},
 				},
+				NodeSelector: map[string]string{
+					"kubernetes.io/os": "",
+				},
 			},
 			Status: corev1.PodStatus{
 				HostIP: "1.1.1.1",
@@ -151,6 +154,107 @@ func TestHandlerContainerInit(t *testing.T) {
 				},
 			},
 		},
+
+		{
+			"windows default cmd and env",
+			func(pod *corev1.Pod) *corev1.Pod {
+				pod.Annotations[constants.AnnotationService] = "web"
+				pod.Spec.NodeSelector["kubernetes.io/os"] = "windows"
+				return pod
+			},
+			MeshWebhook{
+				ConsulAddress: "consul-server.default.svc",
+				ConsulConfig:  &consul.Config{HTTPPort: 8500, GRPCPort: 8502},
+				LogLevel:      "info",
+			},
+			`sh -ec consul-k8s-control-plane.exe connect-init -pod-name=${POD_NAME} -pod-namespace=${POD_NAMESPACE} \
+  -log-level=info \
+  -log-json=false \`,
+			[]corev1.EnvVar{
+				{
+					Name:  "CONSUL_ADDRESSES",
+					Value: "consul-server",
+				},
+				{
+					Name:  "CONSUL_GRPC_PORT",
+					Value: "8502",
+				},
+				{
+					Name:  "CONSUL_HTTP_PORT",
+					Value: "8500",
+				},
+				{
+					Name:  "CONSUL_API_TIMEOUT",
+					Value: "0s",
+				},
+				{
+					Name:  "CONSUL_NODE_NAME",
+					Value: "$(NODE_NAME)-virtual",
+				},
+			},
+		},
+
+		{
+			"windows with auth method",
+			func(pod *corev1.Pod) *corev1.Pod {
+				pod.Annotations[constants.AnnotationService] = "web"
+				pod.Spec.ServiceAccountName = "a-service-account-name"
+				pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{
+						Name:      "sa",
+						MountPath: "/var/run/secrets/kubernetes.io/serviceaccount",
+					},
+				}
+				pod.Spec.NodeSelector["kubernetes.io/os"] = "windows"
+				return pod
+			},
+			MeshWebhook{
+				AuthMethod:    "an-auth-method",
+				ConsulAddress: "consul-server.default.svc",
+				ConsulConfig:  &consul.Config{HTTPPort: 8500, GRPCPort: 8502, APITimeout: 5 * time.Second},
+				LogLevel:      "debug",
+				LogJSON:       true,
+			},
+			`sh -ec consul-k8s-control-plane.exe connect-init -pod-name=${POD_NAME} -pod-namespace=${POD_NAMESPACE} \
+  -log-level=debug \
+  -log-json=true \
+  -service-account-name="a-service-account-name" \
+  -service-name="web" \`,
+			[]corev1.EnvVar{
+				{
+					Name:  "CONSUL_ADDRESSES",
+					Value: "consul-server",
+				},
+				{
+					Name:  "CONSUL_GRPC_PORT",
+					Value: "8502",
+				},
+				{
+					Name:  "CONSUL_HTTP_PORT",
+					Value: "8500",
+				},
+				{
+					Name:  "CONSUL_API_TIMEOUT",
+					Value: "5s",
+				},
+				{
+					Name:  "CONSUL_NODE_NAME",
+					Value: "$(NODE_NAME)-virtual",
+				},
+				{
+					Name:  "CONSUL_LOGIN_AUTH_METHOD",
+					Value: "an-auth-method",
+				},
+				{
+					Name:  "CONSUL_LOGIN_BEARER_TOKEN_FILE",
+					Value: "/var/run/secrets/kubernetes.io/serviceaccount/token",
+				},
+				{
+					Name:  "CONSUL_LOGIN_META",
+					Value: "pod=$(POD_NAMESPACE)/$(POD_NAME)",
+				},
+			},
+		},
 	}
 
 	for _, tt := range cases {
@@ -161,7 +265,7 @@ func TestHandlerContainerInit(t *testing.T) {
 			require.NoError(t, err)
 			actual := strings.Join(container.Command, " ")
 			require.Contains(t, actual, tt.ExpCmd)
-			require.EqualValues(t, container.Env[3:], tt.ExpEnv)
+			require.EqualValues(t, tt.ExpEnv, container.Env[3:])
 		})
 	}
 }
