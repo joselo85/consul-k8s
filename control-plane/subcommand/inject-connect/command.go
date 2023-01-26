@@ -35,7 +35,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlRuntimeWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
-	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
 const WebhookCAFilename = "ca.crt"
@@ -43,17 +42,20 @@ const WebhookCAFilename = "ca.crt"
 type Command struct {
 	UI cli.Ui
 
-	flagListen                string
-	flagCertDir               string // Directory with TLS certs for listening (PEM)
-	flagDefaultInject         bool   // True to inject by default
-	flagConsulImage           string // Docker image for Consul
-	flagConsulDataplaneImage  string // Docker image for Envoy
-	flagConsulK8sImage        string // Docker image for consul-k8s
-	flagACLAuthMethod         string // Auth Method to use for ACLs, if enabled
-	flagEnvoyExtraArgs        string // Extra envoy args when starting envoy
-	flagEnableWebhookCAUpdate bool
-	flagLogLevel              string
-	flagLogJSON               bool
+	flagListen                      string
+	flagCertDir                     string // Directory with TLS certs for listening (PEM)
+	flagDefaultInject               bool   // True to inject by default
+	flagConsulImage                 string // Docker image for Consul
+	flagConsulImageWindows          string // Windows Docker image for Consul
+	flagConsulDataplaneImage        string // Docker image for Envoy
+	flagConsulDataplaneImageWindows string // Windows Docker image for Envoy
+	flagConsulK8sImage              string // Docker image for consul-k8s
+	flagConsulK8sImageWindows       string // Windows Docker image for consul-k8s
+	flagACLAuthMethod               string // Auth Method to use for ACLs, if enabled
+	flagEnvoyExtraArgs              string // Extra envoy args when starting envoy
+	flagEnableWebhookCAUpdate       bool
+	flagLogLevel                    string
+	flagLogJSON                     bool
 
 	flagAllowK8sNamespacesList []string // K8s namespaces to explicitly inject
 	flagDenyK8sNamespacesList  []string // K8s namespaces to deny injection (has precedence)
@@ -147,10 +149,16 @@ func (c *Command) init() {
 		"Directory with PEM-encoded TLS certificate and key to serve.")
 	c.flagSet.StringVar(&c.flagConsulImage, "consul-image", "",
 		"Docker image for Consul.")
+	c.flagSet.StringVar(&c.flagConsulImageWindows, "consul-image-windows", "",
+		"Windows Docker image for Consul.")
 	c.flagSet.StringVar(&c.flagConsulDataplaneImage, "consul-dataplane-image", "",
 		"Docker image for Consul Dataplane.")
+	c.flagSet.StringVar(&c.flagConsulDataplaneImageWindows, "consul-dataplane-image-windows", "",
+		"Windows Docker image for Consul Dataplane.")
 	c.flagSet.StringVar(&c.flagConsulK8sImage, "consul-k8s-image", "",
 		"Docker image for consul-k8s. Used for the connect sidecar.")
+	c.flagSet.StringVar(&c.flagConsulK8sImageWindows, "consul-k8s-image-windows", "",
+		"Windows Docker image for consul-k8s. Used for the connect sidecar.")
 	c.flagSet.BoolVar(&c.flagEnablePeering, "enable-peering", false, "Enable cluster peering controllers.")
 	c.flagSet.BoolVar(&c.flagEnableFederation, "enable-federation", false, "Enable Consul WAN Federation.")
 	c.flagSet.StringVar(&c.flagEnvoyExtraArgs, "envoy-extra-args", "",
@@ -607,9 +615,12 @@ func (c *Command) Run(args []string) int {
 			ConsulConfig:                 consulConfig,
 			ConsulServerConnMgr:          watcher,
 			ImageConsul:                  c.flagConsulImage,
+			ImageConsulWindows:           c.flagConsulImageWindows,
 			ImageConsulDataplane:         c.flagConsulDataplaneImage,
+			ImageConsulDataplaneWindows:  c.flagConsulDataplaneImageWindows,
 			EnvoyExtraArgs:               c.flagEnvoyExtraArgs,
 			ImageConsulK8S:               c.flagConsulK8sImage,
+			ImageConsulK8SWindows:        c.flagConsulK8sImageWindows,
 			RequireAnnotation:            !c.flagDefaultInject,
 			AuthMethod:                   c.flagACLAuthMethod,
 			ConsulCACert:                 string(caCertPem),
@@ -645,61 +656,61 @@ func (c *Command) Run(args []string) int {
 	// Note: The path here should be identical to the one on the kubebuilder
 	// annotation in each webhook file.
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-servicedefaults",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ServiceDefaultsWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ServiceDefaultsWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ServiceDefaults),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-serviceresolver",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ServiceResolverWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ServiceResolverWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ServiceResolver),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-proxydefaults",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ProxyDefaultsWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ProxyDefaultsWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ProxyDefaults),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-mesh",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.MeshWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.MeshWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.Mesh),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-exportedservices",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ExportedServicesWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ExportedServicesWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ExportedServices),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-servicerouter",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ServiceRouterWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ServiceRouterWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ServiceRouter),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-servicesplitter",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ServiceSplitterWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ServiceSplitterWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ServiceSplitter),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-serviceintentions",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.ServiceIntentionsWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.ServiceIntentionsWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.ServiceIntentions),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-ingressgateway",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.IngressGatewayWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.IngressGatewayWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.IngressGateway),
 			ConsulMeta: consulMeta,
 		}})
 	mgr.GetWebhookServer().Register("/mutate-v1alpha1-terminatinggateway",
-		&ctrlwebhook.Admission{Handler: &v1alpha1.TerminatingGatewayWebhook{
+		&ctrlRuntimeWebhook.Admission{Handler: &v1alpha1.TerminatingGatewayWebhook{
 			Client:     mgr.GetClient(),
 			Logger:     ctrl.Log.WithName("webhooks").WithName(apicommon.TerminatingGateway),
 			ConsulMeta: consulMeta,
@@ -739,11 +750,20 @@ func (c *Command) validateFlags() error {
 	if c.flagConsulK8sImage == "" {
 		return errors.New("-consul-k8s-image must be set")
 	}
+	if c.flagConsulK8sImageWindows == "" {
+		return errors.New("-consul-k8s-image-windows must be set")
+	}
 	if c.flagConsulImage == "" {
 		return errors.New("-consul-image must be set")
 	}
+	if c.flagConsulImageWindows == "" {
+		return errors.New("-consul-image-windows must be set")
+	}
 	if c.flagConsulDataplaneImage == "" {
 		return errors.New("-consul-dataplane-image must be set")
+	}
+	if c.flagConsulDataplaneImageWindows == "" {
+		return errors.New("-consul-dataplane-image-windows must be set")
 	}
 
 	if c.flagEnablePartitions && c.consul.Partition == "" {

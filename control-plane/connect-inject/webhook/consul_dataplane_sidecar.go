@@ -47,17 +47,46 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		containerName = fmt.Sprintf("%s-%s", sidecarContainer, mpi.serviceName)
 	}
 
-	probe := &corev1.Probe{
-		Handler: corev1.Handler{
-			TCPSocket: &corev1.TCPSocketAction{
-				Port: intstr.FromInt(constants.ProxyDefaultInboundPort + mpi.serviceIndex),
+	var probe *corev1.Probe
+	if useProxyHealthCheck(pod) {
+		// If using the proxy health check for a service, configure an HTTP handler
+		// that queries the '/ready' endpoint of the proxy.
+		probe = &corev1.Probe{
+			Handler: corev1.Handler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Port: intstr.FromInt(constants.ProxyDefaultHealthPort + mpi.serviceIndex),
+					Path: "/ready",
+				},
 			},
-		},
-		InitialDelaySeconds: 1,
+			InitialDelaySeconds: 1,
+		}
+	} else {
+		probe = &corev1.Probe{
+			Handler: corev1.Handler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromInt(constants.ProxyDefaultInboundPort + mpi.serviceIndex),
+				},
+			},
+			InitialDelaySeconds: 1,
+		}
 	}
+
+
+	// Declare variables to be used in container
+	var dataplaneImage, connectInjectDir string
+
+	// Assign values to the variables depending on the OS
+	if isWindows(pod) {
+		dataplaneImage = w.ImageConsulDataplaneWindows
+		connectInjectDir = "C:\\consul\\connect-inject"
+	} else {
+		dataplaneImage = w.ImageConsulDataplane
+		connectInjectDir = "/consul/connect-inject"
+	}
+
 	container := corev1.Container{
 		Name:      containerName,
-		Image:     w.ImageConsulDataplane,
+		Image:     dataplaneImage,
 		Resources: resources,
 		// We need to set tmp dir to an ephemeral volume that we're mounting so that
 		// consul-dataplane can write files to it. Otherwise, it wouldn't be able to
@@ -65,7 +94,7 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		Env: []corev1.EnvVar{
 			{
 				Name:  "TMPDIR",
-				Value: "/consul/connect-inject",
+				Value: connectInjectDir,
 			},
 			{
 				Name: "NODE_NAME",
@@ -83,16 +112,30 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      volumeName,
-				MountPath: "/consul/connect-inject",
+				MountPath: connectInjectDir,
 			},
 		},
 		Args:           args,
 		ReadinessProbe: probe,
-		LivenessProbe:  probe,
 	}
 
 	if w.AuthMethod != "" {
 		container.VolumeMounts = append(container.VolumeMounts, saTokenVolumeMount)
+	}
+
+	if useProxyHealthCheck(pod) {
+		// Configure the Readiness Address for the proxy's health check to be the Pod IP.
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name: "DP_ENVOY_READY_BIND_ADDRESS",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+			},
+		})
+		// Configure the port on which the readiness probe will query the proxy for its health.
+		container.Ports = append(container.Ports, corev1.ContainerPort{
+			Name:          fmt.Sprintf("%s-%d", "proxy-health", mpi.serviceIndex),
+			ContainerPort: int32(constants.ProxyDefaultHealthPort + mpi.serviceIndex),
+		})
 	}
 
 	// Add any extra VolumeMounts.
@@ -129,11 +172,14 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 				return corev1.Container{}, fmt.Errorf("container %q has runAsUser set to the same UID \"%d\" as consul-dataplane which is not allowed", c.Name, sidecarUserAndGroupID)
 			}
 		}
-		container.SecurityContext = &corev1.SecurityContext{
-			RunAsUser:              pointer.Int64(sidecarUserAndGroupID),
-			RunAsGroup:             pointer.Int64(sidecarUserAndGroupID),
-			RunAsNonRoot:           pointer.Bool(true),
-			ReadOnlyRootFilesystem: pointer.Bool(true),
+		// Security Context should not be set when using Windows.
+		if !isWindows(pod) {
+			container.SecurityContext = &corev1.SecurityContext{
+				RunAsUser:              pointer.Int64(sidecarUserAndGroupID),
+				RunAsGroup:             pointer.Int64(sidecarUserAndGroupID),
+				RunAsNonRoot:           pointer.Bool(true),
+				ReadOnlyRootFilesystem: pointer.Bool(true),
+			}
 		}
 	}
 
@@ -141,9 +187,22 @@ func (w *MeshWebhook) consulDataplaneSidecar(namespace corev1.Namespace, pod cor
 }
 
 func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi multiPortInfo, bearerTokenFile string, pod corev1.Pod) ([]string, error) {
-	proxyIDFileName := "/consul/connect-inject/proxyid"
+	var proxyIDFileName, consulAddress string
+	if isWindows(pod) {
+		proxyIDFileName = "C:\\consul\\connect-inject\\proxyid"
+		// Windows resolves DNS addresses differently. Read more: https://github.com/hashicorp-education/learn-consul-k8s-windows/blob/main/WindowsTroubleshooting.md#encountered-issues
+		consulAddress, _, _ = strings.Cut(w.ConsulAddress, ".")
+	} else {
+		proxyIDFileName = "/consul/connect-inject/proxyid"
+		consulAddress = w.ConsulAddress
+	}
+
 	if mpi.serviceName != "" {
-		proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)
+		if isWindows(pod) {
+			proxyIDFileName = fmt.Sprintf("C:\\consul\\connect-inject\\proxyid-%s", mpi.serviceName)
+		} else {
+			proxyIDFileName = fmt.Sprintf("/consul/connect-inject/proxyid-%s", mpi.serviceName)
+		}
 	}
 
 	envoyConcurrency := w.DefaultEnvoyProxyConcurrency
@@ -158,7 +217,7 @@ func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi mu
 	}
 
 	args := []string{
-		"-addresses", w.ConsulAddress,
+		"-addresses", consulAddress,
 		"-grpc-port=" + strconv.Itoa(w.ConsulConfig.GRPCPort),
 		"-proxy-service-id-path=" + proxyIDFileName,
 		"-log-level=" + w.LogLevel,
@@ -203,6 +262,11 @@ func (w *MeshWebhook) getContainerSidecarArgs(namespace corev1.Namespace, mpi mu
 		}
 	} else {
 		args = append(args, "-tls-disabled")
+	}
+
+	// Configure the readiness port on the dataplane sidecar if proxy health checks are enabled.
+	if useProxyHealthCheck(pod) {
+		args = append(args, fmt.Sprintf("%s=%d", "-envoy-ready-bind-port", constants.ProxyDefaultHealthPort+mpi.serviceIndex))
 	}
 
 	if mpi.serviceName != "" {
@@ -381,4 +445,17 @@ func (w *MeshWebhook) sidecarResources(pod corev1.Pod) (corev1.ResourceRequireme
 	}
 
 	return resources, nil
+}
+
+// useProxyHealthCheck returns true if the pod has the annotation 'consul.hashicorp.com/use-proxy-health-check'
+// set to truthy values.
+func useProxyHealthCheck(pod corev1.Pod) bool {
+	if v, ok := pod.Annotations[constants.AnnotationUseProxyHealthCheck]; ok {
+		useProxyHealthCheck, err := strconv.ParseBool(v)
+		if err != nil {
+			return false
+		}
+		return useProxyHealthCheck
+	}
+	return false
 }
