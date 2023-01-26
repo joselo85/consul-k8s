@@ -6,6 +6,8 @@
 - [Consul k8s Control Plane Changes](#consul-k8s-control-plane-changes)
   - [Enabling Pod OS detection](#enabling-pod-os-detection)
   - [Assigning Values Depending on the OS](#assigning-values-depending-on-the-os)
+  - [Adding New Config Flags](#adding-new-config-flags)
+  - [Unit Tests](#unit-tests)
 - [Consul Helm Chart Changes](#consul-helm-chart-changes)
   - [Changes in values.yaml](#changes-in-valuesyaml)
   - [Changes in connect-injector-deployment.yaml Template](#changes-in-connect-injector-deploymentyaml-template)
@@ -68,7 +70,24 @@ The new flags that enable setting this values are:
 - consul-k8s-image-windows
 
 > **Warning**  
-> These flags require a default value, just like their Linux counterpart do, otherwise the `validateFlags()` function (line 750 in [command.go](./control-plane/subcommand/inject-connect/command.go)) will throw an error.  
+> These flags require a default value, just like their Linux counterpart do, otherwise the `validateFlags()` function (line 750 in [command.go](./control-plane/subcommand/inject-connect/command.go)) will throw an error.
+
+### Unit Tests  
+
+#### command_test.go
+
+After adding the new command flags to *inject-connect/command.go*, and updating the `validateFlags()` function, we updated the unit test in command_test.go to account for these changes.
+The updates were focused on the `TestRun_FlagValidation` test.
+
+#### container_init_test.go
+
+We updated test coverage by creating new cases to account for the init container being deployed in a Windows pod. The new cases were added in the following tests:  
+
+- TestHandlerContainerInit
+- TestHandlerContainerInit_namespacesAndPartitionsEnabled
+- TestHandlerContainerInit_Multiport
+
+These new cases evaluate that the command and the env vars are set appropriately for a Windows pod.
 
 ## Consul Helm Chart Changes
 
